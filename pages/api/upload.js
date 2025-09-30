@@ -1,3 +1,4 @@
+
 // pages/api/upload.js
 import formidable from "formidable";
 import fs from "fs";
@@ -18,33 +19,35 @@ const parseForm = (req) =>
     });
   });
 
-// Function to parse MCQs from the uploaded TXT file
+// Function to parse MCQs from uploaded TXT file
 function parseMCQs(text) {
-  const lines = text.split(/\r?\n/); // split all lines
+  const lines = text.split(/\r?\n/);
   const mcqs = [];
   let i = 0;
 
   while (i < lines.length) {
     let line = lines[i].trim();
-
-    // Skip empty lines
     if (!line) {
       i++;
       continue;
     }
 
-    // Detect question line starting with number or "Q:"
+    // Detect question line
     const questionMatch = line.match(/^(\d+[:.]|Q:)\s*(.*)/);
     if (!questionMatch) {
       i++;
-      continue; // skip lines until question found
+      continue;
     }
 
     let questionText = questionMatch[2] || "";
     i++;
 
-    // Collect question lines until first option (A-D)
-    while (i < lines.length && !/^[A-D][)\.]\s*/.test(lines[i].trim()) && !/^Answer:/i.test(lines[i].trim())) {
+    // Collect multiline question text until first option or Answer
+    while (
+      i < lines.length &&
+      !/^[A-D][)\.]\s*/.test(lines[i].trim()) &&
+      !/^Answer:/i.test(lines[i].trim())
+    ) {
       questionText += "\n" + lines[i].trim();
       i++;
     }
@@ -52,17 +55,15 @@ function parseMCQs(text) {
     // Collect options
     const options = [];
     while (i < lines.length && /^[A-D][)\.]\s*/.test(lines[i].trim())) {
-      const optMatch = lines[i].trim().match(/^[A-D][)\.]\s*(.*)/);
-      if (optMatch) options.push(optMatch[1].trim());
+      const optMatch = lines[i].trim().match(/^([A-D][)\.]\s*.*)/);
+      if (optMatch) options.push(optMatch[1].trim()); // keep full option with "C) 6 7"
       i++;
     }
 
-    // Read answer
+    // Collect answer
     let answer = null;
     if (i < lines.length && /^Answer:/i.test(lines[i].trim())) {
-      answer = lines[i].trim().replace(/^Answer:\s*/i, "");
-      const letterMatch = answer.match(/^[A-D][)\.]?\s*/);
-      if (letterMatch) answer = answer.replace(letterMatch[0], "").trim();
+      answer = lines[i].trim().replace(/^Answer:\s*/i, "").trim(); // e.g. "C) 6 7"
       i++;
     }
 
@@ -76,8 +77,7 @@ function parseMCQs(text) {
   return mcqs;
 }
 
-
-// Function to generate Google Apps Script code
+// Generate Google Apps Script
 function generateGoogleAppsScript(mcqs) {
   const mcqString = JSON.stringify(mcqs);
   return `
@@ -92,10 +92,16 @@ function createFormFromMCQs() {
     }
 
     const item = form.addMultipleChoiceItem();
-    const choices = q.options.map(opt => 
-      item.createChoice(opt, q.answer ? opt.trim() === q.answer.trim() : false)
+    const choices = q.options.map(opt =>
+      item.createChoice(
+        opt,
+        q.answer ? opt.trim() === q.answer.trim() : false // ✅ correct answer
+      )
     );
-    item.setTitle(q.question).setChoices(choices);
+
+    item.setTitle(q.question)
+        .setChoices(choices)
+        .setPoints(1); // ✅ each question worth 1 point
   });
 
   Logger.log("Form created: " + form.getEditUrl());
@@ -111,7 +117,7 @@ export default async function handler(req, res) {
 
   try {
     const { files } = await parseForm(req);
-    const file = Array.isArray(files.file) ? files.file[0] : files.file; // Support multiple versions of formidable
+    const file = Array.isArray(files.file) ? files.file[0] : files.file;
     const text = fs.readFileSync(file.filepath, "utf-8");
     const mcqs = parseMCQs(text);
     const script = generateGoogleAppsScript(mcqs);
